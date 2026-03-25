@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard – Dra. Michelle Garcia</title>
+  <link rel="icon" type="image/png" href="logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-logo">Dra. <span>Michelle Garcia</span> — Dashboard</div>
+    <div class="topbar-right">
+      <span class="topbar-user" id="topbarUser"></span>
+      <button class="btn-logout" id="btnLogout">Cerrar sesión</button>
+    </div>
+  </div>
+
+  <div class="dashboard">
+    <div class="container">
+
+      <!-- STATS -->
+      <div class="stats-grid">
+        <div class="stat-card"><span class="stat-num" id="statTotal">—</span><span class="stat-label">Total citas</span></div>
+        <div class="stat-card"><span class="stat-num" id="statPendiente">—</span><span class="stat-label">Pendientes</span></div>
+        <div class="stat-card"><span class="stat-num" id="statConfirmada">—</span><span class="stat-label">Confirmadas</span></div>
+        <div class="stat-card"><span class="stat-num" id="statCancelada">—</span><span class="stat-label">Canceladas</span></div>
+      </div>
+
+      <!-- FILTROS -->
+      <div class="filtros">
+        <select id="filtroEstado">
+          <option value="">Todos los estados</option>
+          <option value="Pendiente">Pendiente</option>
+          <option value="Confirmada">Confirmada</option>
+          <option value="Cancelada">Cancelada</option>
+        </select>
+        <input type="date" id="filtroFecha" />
+        <button class="btn-refresh" id="btnRefresh">↺ Actualizar</button>
+      </div>
+
+      <!-- TABLA (desktop) -->
+      <div class="table-wrap">
+        <div class="table-empty" id="tableLoading">
+          <div class="spinner"></div>
+          Cargando citas...
+        </div>
+        <table class="citas-table" id="citasTable" style="display:none">
+          <thead>
+            <tr>
+              <th>Paciente</th>
+              <th>Tratamiento</th>
+              <th>Fecha</th>
+              <th>Hora</th>
+              <th>Teléfono</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="citasTbody"></tbody>
+        </table>
+        <div class="table-empty" id="tableEmpty" style="display:none">
+          No hay citas para los filtros seleccionados.
+        </div>
+      </div>
+
+      <!-- CARDS (móvil) -->
+      <div class="citas-cards" id="citasCards"></div>
+
+    </div>
+  </div>
+
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw8NdR-mvVwVTXChMpIpU7E0NkLY6objRKbtEdQ3hBc_7BMVJZDBFonu4_yI_S0NTbV/exec";
+
+    if (sessionStorage.getItem("auth") !== "true") {
+      window.location.href = "login.html";
+    }
+
+    document.getElementById("topbarUser").textContent = sessionStorage.getItem("usuario") || "";
+
+    document.getElementById("btnLogout").addEventListener("click", () => {
+      sessionStorage.clear();
+      window.location.href = "login.html";
+    });
+
+    let todasLasCitas = [];
+
+    // ── Cargar citas ──
+    async function cargarCitas() {
+      document.getElementById("tableLoading").style.display = "block";
+      document.getElementById("citasTable").style.display   = "none";
+      document.getElementById("tableEmpty").style.display   = "none";
+      document.getElementById("citasCards").innerHTML       = "";
+
+      try {
+        const res  = await fetch(`${SCRIPT_URL}?action=getCitas&t=${Date.now()}`, { cache: "no-store" });
+        const json = await res.json();
+        todasLasCitas = json.citas || [];
+        actualizarStats(todasLasCitas);
+        renderCitas(todasLasCitas);
+      } catch (err) {
+        document.getElementById("tableLoading").innerHTML = "Error al cargar citas. Intenta de nuevo.";
+      }
+    }
+
+    // ── Stats ──
+    function actualizarStats(citas) {
+      document.getElementById("statTotal").textContent      = citas.length;
+      document.getElementById("statPendiente").textContent  = citas.filter(c => c.estado === "Pendiente").length;
+      document.getElementById("statConfirmada").textContent = citas.filter(c => c.estado === "Confirmada").length;
+      document.getElementById("statCancelada").textContent  = citas.filter(c => c.estado === "Cancelada").length;
+    }
+
+    // ── Render tabla + cards ──
+    function renderCitas(citas) {
+      document.getElementById("tableLoading").style.display = "none";
+      const cardsEl = document.getElementById("citasCards");
+      cardsEl.innerHTML = "";
+
+      if (citas.length === 0) {
+        document.getElementById("tableEmpty").style.display = "block";
+        document.getElementById("citasTable").style.display = "none";
+        return;
+      }
+
+      document.getElementById("citasTable").style.display = "table";
+      document.getElementById("tableEmpty").style.display = "none";
+
+      const sorted = [...citas].sort((a, b) =>
+        (parseFecha(a.fecha) + a.hora).localeCompare(parseFecha(b.fecha) + b.hora)
+      );
+
+      const tbody = document.getElementById("citasTbody");
+      tbody.innerHTML = "";
+
+      sorted.forEach(cita => {
+        const accionesHTML = `
+          ${cita.estado !== "Confirmada" && cita.estado !== "Cancelada"
+            ? `<button class="btn-accion btn-confirmar" onclick="cambiarEstado(${cita.fila}, 'Confirmada', this)">Confirmar</button>` : ""}
+          ${cita.estado !== "Cancelada"
+            ? `<button class="btn-accion btn-cancelar" onclick="cambiarEstado(${cita.fila}, 'Cancelada', this)">Cancelar</button>` : ""}
+        `;
+
+        // Fila tabla (desktop)
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>
+            <strong style="display:block;color:var(--pri-dark)">${cita.nombre}</strong>
+            <span style="font-size:.78rem;color:var(--muted)">${cita.correo}</span>
+          </td>
+          <td>${cita.tratamiento}</td>
+          <td>${cita.fecha}</td>
+          <td>${formatHora12(cita.hora)}</td>
+          <td>${cita.telefono}</td>
+          <td><span class="badge badge-${cita.estado.toLowerCase()}">${cita.estado}</span></td>
+          <td><div class="acciones">${accionesHTML}</div></td>
+        `;
+        tbody.appendChild(tr);
+
+        // Card (móvil)
+        const card = document.createElement("div");
+        card.className = "cita-card";
+        card.innerHTML = `
+          <div class="cita-card-header">
+            <div>
+              <div class="cita-card-nombre">${cita.nombre}</div>
+              <div class="cita-card-correo">${cita.correo}</div>
+            </div>
+            <span class="badge badge-${cita.estado.toLowerCase()}">${cita.estado}</span>
+          </div>
+          <div class="cita-card-body">
+            <div class="cita-card-field"><span>Tratamiento</span><strong>${cita.tratamiento}</strong></div>
+            <div class="cita-card-field"><span>Teléfono</span><strong>${cita.telefono}</strong></div>
+            <div class="cita-card-field"><span>Fecha</span><strong>${cita.fecha}</strong></div>
+            <div class="cita-card-field"><span>Hora</span><strong>${formatHora12(cita.hora)}</strong></div>
+          </div>
+          <div class="cita-card-footer">${accionesHTML}</div>
+        `;
+        cardsEl.appendChild(card);
+      });
+    }
+
+    // ── Cambiar estado ──
+    async function cambiarEstado(fila, nuevoEstado, btn) {
+      btn.disabled    = true;
+      btn.textContent = "...";
+
+      try {
+        const url  = `${SCRIPT_URL}?action=actualizarEstado&fila=${fila}&estado=${encodeURIComponent(nuevoEstado)}&t=${Date.now()}`;
+        const res  = await fetch(url, { cache: "no-store" });
+        const json = await res.json();
+
+        if (json.ok) {
+          await cargarCitas();
+        } else {
+          btn.disabled    = false;
+          btn.textContent = nuevoEstado === "Confirmada" ? "Confirmar" : "Cancelar";
+          alert("Error al actualizar. Intenta de nuevo.");
+        }
+      } catch (err) {
+        btn.disabled    = false;
+        btn.textContent = nuevoEstado === "Confirmada" ? "Confirmar" : "Cancelar";
+        alert("Error de conexión.");
+      }
+    }
+
+    // ── Filtros ──
+    function aplicarFiltros() {
+      const estado = document.getElementById("filtroEstado").value;
+      const fecha  = document.getElementById("filtroFecha").value;
+
+      let filtradas = [...todasLasCitas];
+      if (estado) filtradas = filtradas.filter(c => c.estado === estado);
+      if (fecha)  filtradas = filtradas.filter(c => c.fecha  === isoADDMMYYYY(fecha));
+
+      actualizarStats(todasLasCitas);
+      renderCitas(filtradas);
+    }
+
+    document.getElementById("filtroEstado").addEventListener("change", aplicarFiltros);
+    document.getElementById("filtroFecha").addEventListener("change", aplicarFiltros);
+    document.getElementById("btnRefresh").addEventListener("click", cargarCitas);
+
+    // ── Helpers ──
+    function isoADDMMYYYY(iso) {
+      if (!iso) return "";
+      const [y, m, d] = iso.split("-");
+      return `${d}/${m}/${y}`;
+    }
+
+    function parseFecha(ddmmyyyy) {
+      if (!ddmmyyyy) return "";
+      const [d, m, y] = ddmmyyyy.split("/");
+      return `${y}-${m}-${d}`;
+    }
+
+    function formatHora12(h) {
+      if (!h) return h;
+      const [hh, mm] = h.split(":").map(Number);
+      const p = hh >= 12 ? "PM" : "AM";
+      return `${hh % 12 || 12}:${String(mm).padStart(2, "0")} ${p}`;
+    }
+
+    cargarCitas();
+  </script>
+</body>
+</html>

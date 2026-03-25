@@ -3,43 +3,34 @@
    Archivo ubicado en: src/main.js
    ============================================= */
 
-// ⚠️ Número de WhatsApp de la Dra. Michelle (formato internacional)
+// ⚠️ Número de WhatsApp de la Dra. Michelle
 const WA_NUMBER = "593963837148";
 
-// ⚠️ URL del Google Apps Script publicado como Web App
-//    Pasos para obtenerla:
-//    1. Abre tu Google Sheet → Extensions → Apps Script
-//    2. Pega el código de Code.gs y guarda
-//    3. Deploy → New deployment → Web App
-//    4. Execute as: "Me" | Who has access: "Anyone"
-//    5. Copia la URL y pégala aquí
+// ⚠️ URL del Google Apps Script Web App
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw8NdR-mvVwVTXChMpIpU7E0NkLY6objRKbtEdQ3hBc_7BMVJZDBFonu4_yI_S0NTbV/exec";
+
+// Mapa de tratamientos cargados desde Sheets { nombre: duracion }
+let tratamientosMap = {};
 
 
 /* =============================================
-   NAVBAR — HAMBURGER MENU
+   NAVBAR
    ============================================= */
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
 
   const hamburger = document.getElementById("hamburger");
   const navLinks  = document.getElementById("navLinks");
 
   if (hamburger && navLinks) {
-    hamburger.addEventListener("click", () => {
-      navLinks.classList.toggle("open");
-    });
-    navLinks.querySelectorAll("a").forEach(a => {
-      a.addEventListener("click", () => navLinks.classList.remove("open"));
-    });
+    hamburger.addEventListener("click", () => navLinks.classList.toggle("open"));
+    navLinks.querySelectorAll("a").forEach(a =>
+      a.addEventListener("click", () => navLinks.classList.remove("open"))
+    );
   }
 
-  // Marcar link activo
   const currentPage = window.location.pathname.split("/").pop() || "index.html";
   document.querySelectorAll(".nav-links a").forEach(link => {
-    const href = link.getAttribute("href");
-    if (href === currentPage || (currentPage === "" && href === "index.html")) {
-      link.classList.add("active");
-    }
+    if (link.getAttribute("href") === currentPage) link.classList.add("active");
   });
 
 
@@ -47,36 +38,42 @@ document.addEventListener("DOMContentLoaded", () => {
      ANIMACIONES FADE-UP
      ============================================= */
   const fadeEls = document.querySelectorAll(".fade-up");
-
   if ("IntersectionObserver" in window) {
     const observer = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
-          setTimeout(() => {
-            entry.target.classList.add("visible");
-          }, 80 * (entry.target.dataset.delay || 0));
+          setTimeout(() => entry.target.classList.add("visible"), 80 * (entry.target.dataset.delay || 0));
           observer.unobserve(entry.target);
         }
       });
     }, { threshold: 0.12 });
-
-    fadeEls.forEach((el, i) => {
-      el.dataset.delay = i % 4;
-      observer.observe(el);
-    });
+    fadeEls.forEach((el, i) => { el.dataset.delay = i % 4; observer.observe(el); });
   } else {
     fadeEls.forEach(el => el.classList.add("visible"));
   }
 
 
   /* =============================================
-     FORMULARIO DE AGENDAR CITA
+     FORMULARIO DE AGENDAR
      ============================================= */
-  const inputFecha  = document.getElementById("fecha");
-  const selectHora  = document.getElementById("hora");
-  const form        = document.getElementById("formCita");
-  const btnEnviar   = document.getElementById("btnEnviar");
-  const formSuccess = document.getElementById("formSuccess");
+  const selectTratamiento = document.getElementById("tratamiento");
+  const inputFecha        = document.getElementById("fecha");
+  const selectHora        = document.getElementById("hora");
+  const form              = document.getElementById("formCita");
+  const btnEnviar         = document.getElementById("btnEnviar");
+  const formSuccess       = document.getElementById("formSuccess");
+
+  // --- Cargar tratamientos desde Sheets al combo ---
+  if (selectTratamiento) {
+    await cargarTratamientos(selectTratamiento);
+
+    // Al cambiar tratamiento: recargar horas si ya hay fecha
+    selectTratamiento.addEventListener("change", async () => {
+      if (inputFecha && inputFecha.value) {
+        await cargarHorasDisponibles(inputFecha.value);
+      }
+    });
+  }
 
   // --- Bloquear fechas pasadas ---
   if (inputFecha) {
@@ -86,21 +83,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const dd   = String(hoy.getDate()).padStart(2, "0");
     inputFecha.min = `${yyyy}-${mm}-${dd}`;
 
-    // --- Al cambiar fecha: cargar horas disponibles ---
     inputFecha.addEventListener("change", async () => {
-      const fechaISO = inputFecha.value;
-      if (!fechaISO) return;
-
-      // Bloquear domingos
-      const dia = new Date(fechaISO + "T00:00:00").getDay();
+      const dia = new Date(inputFecha.value + "T00:00:00").getDay();
       if (dia === 0) {
         mostrarAlerta("La clínica no atiende los domingos. Por favor selecciona otro día.", "error");
         inputFecha.value = "";
         resetSelectHora();
         return;
       }
-
-      await cargarHorasDisponibles(fechaISO);
+      await cargarHorasDisponibles(inputFecha.value);
     });
   }
 
@@ -109,11 +100,15 @@ document.addEventListener("DOMContentLoaded", () => {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
+      const tratamientoNombre = form.tratamiento.value;
+      const duracion = tratamientosMap[tratamientoNombre] || 60;
+
       const datos = {
         nombre:      form.nombre.value.trim(),
         telefono:    form.telefono.value.trim(),
         correo:      form.correo.value.trim(),
-        tratamiento: form.tratamiento.value,
+        tratamiento: tratamientoNombre,
+        duracion:    duracion,
         fecha:       form.fecha.value,
         hora:        form.hora.value,
         mensaje:     form.mensaje.value.trim() || "Sin mensaje adicional",
@@ -133,21 +128,15 @@ document.addEventListener("DOMContentLoaded", () => {
       btnEnviar.disabled = true;
       btnEnviar.innerHTML = `<span>Enviando...</span>`;
 
-      // ① Registrar en Google Sheets (si está configurado)
+      // ① Registrar en Sheets
       if (GOOGLE_SCRIPT_URL) {
-        try {
-          await registrarEnSheets(datos);
-        } catch (err) {
-          console.warn("Google Sheets no disponible:", err);
-          // No interrumpe — WhatsApp sigue siendo prioritario
-        }
+        try { await registrarEnSheets(datos); }
+        catch (err) { console.warn("Sheets no disponible:", err); }
       }
 
-      // ② Abrir WhatsApp (SIEMPRE, pase lo que pase con Sheets)
-      const urlWA = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(construirMensajeWA(datos))}`;
-      window.open(urlWA, "_blank");
+      // ② Abrir WhatsApp (siempre)
+      window.open(`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(construirMensajeWA(datos))}`, "_blank");
 
-      // Mostrar mensaje de éxito
       document.getElementById("formWrapper").style.display = "none";
       formSuccess.classList.add("show");
     });
@@ -156,50 +145,106 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 /* =============================================
-   CARGAR HORAS DISPONIBLES DESDE GOOGLE SHEETS
+   CARGAR TRATAMIENTOS DESDE SHEETS
    ============================================= */
-async function cargarHorasDisponibles(fechaISO) {
-  const selectHora = document.getElementById("hora");
-  if (!selectHora) return;
+async function cargarTratamientos(selectEl) {
+  selectEl.innerHTML = `<option value="" disabled selected>Cargando tratamientos...</option>`;
 
-  // Mientras carga
-  selectHora.innerHTML = `<option value="" disabled selected>Consultando disponibilidad...</option>`;
-  selectHora.disabled = true;
-
-  // Si no hay URL configurada → usar horario por defecto 10-18
   if (!GOOGLE_SCRIPT_URL) {
-    poblarSelectHoras(generarSlotsPorDefecto());
+    cargarTratamientosFallback(selectEl);
     return;
   }
 
   try {
-    const fechaFormateada = isoADDMMYYYY(fechaISO);
-    const url = `${GOOGLE_SCRIPT_URL}?action=disponibilidad&fecha=${encodeURIComponent(fechaFormateada)}`;
-    const res  = await fetch(url);
+    const url = `${GOOGLE_SCRIPT_URL}?action=tratamientos&t=${Date.now()}`;
+    const res  = await fetch(url, { cache: "no-store" });
     const json = await res.json();
+
+    if (json.tratamientos && json.tratamientos.length > 0) {
+      selectEl.innerHTML = `<option value="" disabled selected>Selecciona un tratamiento...</option>`;
+      json.tratamientos.forEach(({ nombre, duracion }) => {
+        tratamientosMap[nombre] = duracion;
+        const opt = document.createElement("option");
+        opt.value = nombre;
+        opt.textContent = nombre;
+        selectEl.appendChild(opt);
+      });
+    } else {
+      cargarTratamientosFallback(selectEl);
+    }
+  } catch (err) {
+    console.warn("Error cargando tratamientos:", err);
+    cargarTratamientosFallback(selectEl);
+  }
+}
+
+// Fallback por si el script no está disponible
+function cargarTratamientosFallback(selectEl) {
+  const fallback = [
+    { nombre: "Consulta general",  duracion: 30 },
+    { nombre: "Ortodoncia",        duracion: 60 },
+    { nombre: "Blanqueamiento",    duracion: 60 },
+    { nombre: "Limpieza dental",   duracion: 30 },
+    { nombre: "Implantes",         duracion: 60 },
+    { nombre: "Carillas estéticas",duracion: 60 },
+    { nombre: "Urgencia dental",   duracion: 30 },
+  ];
+  selectEl.innerHTML = `<option value="" disabled selected>Selecciona un tratamiento...</option>`;
+  fallback.forEach(({ nombre, duracion }) => {
+    tratamientosMap[nombre] = duracion;
+    const opt = document.createElement("option");
+    opt.value = nombre;
+            opt.textContent = nombre;
+    selectEl.appendChild(opt);
+  });
+}
+
+
+/* =============================================
+   CARGAR HORAS DISPONIBLES
+   ============================================= */
+async function cargarHorasDisponibles(fechaISO) {
+  const selectHora        = document.getElementById("hora");
+  const selectTratamiento = document.getElementById("tratamiento");
+  if (!selectHora) return;
+
+  const tratamiento = selectTratamiento ? selectTratamiento.value : "";
+  const duracion    = tratamientosMap[tratamiento] || 60;
+
+  selectHora.innerHTML = `<option value="" disabled selected>Consultando disponibilidad...</option>`;
+  selectHora.disabled  = true;
+
+  if (!GOOGLE_SCRIPT_URL) {
+    poblarSelectHoras(generarSlotsFallback(duracion));
+    return;
+  }
+
+  try {
+    const fecha = isoADDMMYYYY(fechaISO);
+    const url   = `${GOOGLE_SCRIPT_URL}?action=disponibilidad&fecha=${encodeURIComponent(fecha)}&duracion=${duracion}&t=${Date.now()}`;
+    const res   = await fetch(url, { cache: "no-store" });
+    const json  = await res.json();
 
     if (json.disponibles && json.disponibles.length > 0) {
       poblarSelectHoras(json.disponibles);
     } else {
       selectHora.innerHTML = `<option value="" disabled selected>Sin disponibilidad este día</option>`;
-      selectHora.disabled = true;
       mostrarAlerta("La doctora no tiene disponibilidad para esta fecha. Por favor elige otro día.", "error");
     }
   } catch (err) {
     console.warn("Error consultando disponibilidad:", err);
-    // Fallback: horario por defecto
-    poblarSelectHoras(generarSlotsPorDefecto());
+    poblarSelectHoras(generarSlotsFallback(duracion));
   }
 }
 
 function poblarSelectHoras(horas) {
   const selectHora = document.getElementById("hora");
-  selectHora.disabled = false;
+  selectHora.disabled  = false;
   selectHora.innerHTML = `<option value="" disabled selected>Selecciona una hora...</option>`;
   horas.forEach(h => {
     const opt = document.createElement("option");
-    opt.value = h;
-    opt.textContent = formatearHora12(h); // mostrar en formato 12h
+    opt.value       = h;
+    opt.textContent = formatearHora12(h);
     selectHora.appendChild(opt);
   });
 }
@@ -208,14 +253,15 @@ function resetSelectHora() {
   const selectHora = document.getElementById("hora");
   if (!selectHora) return;
   selectHora.innerHTML = `<option value="" disabled selected>Primero selecciona una fecha...</option>`;
-  selectHora.disabled = true;
+  selectHora.disabled  = true;
 }
 
-// Slots por defecto 10:00 - 18:00 (fallback sin Sheets)
-function generarSlotsPorDefecto() {
+function generarSlotsFallback(duracion) {
   const slots = [];
-  for (let h = 10; h < 18; h++) {
-    slots.push(`${String(h).padStart(2, "0")}:00`);
+  for (let min = 10 * 60; min < 18 * 60; min += duracion) {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    slots.push(`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`);
   }
   return slots;
 }
@@ -224,14 +270,13 @@ function generarSlotsPorDefecto() {
 /* =============================================
    HELPERS
    ============================================= */
-
 function construirMensajeWA(d) {
   return (
     `🦷 *Nueva solicitud de cita*\n\n` +
     `👤 *Nombre:* ${d.nombre}\n` +
     `📞 *Teléfono:* ${d.telefono}\n` +
     `📧 *Correo:* ${d.correo}\n` +
-    `🩺 *Tratamiento:* ${d.tratamiento}\n` +
+    `🩺 *Tratamiento:* ${d.tratamiento} (${d.duracion} min)\n` +
     `📅 *Fecha:* ${isoADDMMYYYY(d.fecha)}\n` +
     `⏰ *Hora:* ${formatearHora12(d.hora)}\n` +
     `📝 *Nota:* ${d.mensaje}\n\n` +
@@ -246,6 +291,7 @@ async function registrarEnSheets(datos) {
     telefono:    datos.telefono,
     correo:      datos.correo,
     tratamiento: datos.tratamiento,
+    duracion:    datos.duracion,
     fecha:       isoADDMMYYYY(datos.fecha),
     hora:        datos.hora,
     mensaje:     datos.mensaje,
@@ -258,14 +304,12 @@ function validarEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// "2025-06-15" → "15/06/2025"
 function isoADDMMYYYY(fechaISO) {
   if (!fechaISO) return "";
   const [y, m, d] = fechaISO.split("-");
   return `${d}/${m}/${y}`;
 }
 
-// "14:00" → "2:00 PM"
 function formatearHora12(hora24) {
   if (!hora24) return hora24;
   const [h, m] = hora24.split(":").map(Number);
@@ -277,21 +321,16 @@ function formatearHora12(hora24) {
 function mostrarAlerta(mensaje, tipo) {
   const prev = document.querySelector(".form-alert");
   if (prev) prev.remove();
-
   const alerta = document.createElement("div");
   alerta.className = "form-alert";
   alerta.style.cssText = `
-    padding: .75rem 1rem;
-    border-radius: 8px;
-    margin-top: 1rem;
-    font-size: .88rem;
-    font-weight: 500;
-    background: ${tipo === "error" ? "#fef2f2" : "#f0fdf4"};
-    color: ${tipo === "error" ? "#b91c1c" : "#15803d"};
-    border: 1px solid ${tipo === "error" ? "#fecaca" : "#bbf7d0"};
+    padding:.75rem 1rem; border-radius:8px; margin-top:1rem;
+    font-size:.88rem; font-weight:500;
+    background:${tipo === "error" ? "#fef2f2" : "#f0fdf4"};
+    color:${tipo === "error" ? "#b91c1c" : "#15803d"};
+    border:1px solid ${tipo === "error" ? "#fecaca" : "#bbf7d0"};
   `;
   alerta.textContent = mensaje;
-
   const form = document.getElementById("formCita");
   if (form) form.appendChild(alerta);
   setTimeout(() => alerta.remove(), 5000);

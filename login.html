@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acceso – Dra. Michelle Garcia</title>
+  <link rel="icon" type="image/png" href="logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="src/logo.png" />
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+
+  <div class="login-page">
+    <div class="login-card">
+
+      <div class="login-logo">
+        <div class="login-icon">🔐</div>
+        <span class="logo">Dra. <span>Michelle Garcia</span></span>
+        <p>Panel de administración</p>
+      </div>
+
+      <div class="login-error" id="loginError">
+        Usuario o contraseña incorrectos.
+      </div>
+
+      <div class="login-form">
+        <div>
+          <label for="usuario">Usuario</label>
+          <input type="text" id="usuario" placeholder="Ingresa tu usuario" autocomplete="username" />
+        </div>
+        <div>
+          <label for="password">Contraseña</label>
+          <input type="password" id="password" placeholder="Ingresa tu contraseña" autocomplete="current-password" />
+        </div>
+        <button class="btn-login" id="btnLogin">Ingresar</button>
+      </div>
+
+      <div class="login-back">
+        <a href="index.html">← Volver al sitio</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // ⚠️ Misma URL del Apps Script
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw8NdR-mvVwVTXChMpIpU7E0NkLY6objRKbtEdQ3hBc_7BMVJZDBFonu4_yI_S0NTbV/exec";
+
+    // Si ya hay sesión activa, ir directo al dashboard
+    if (sessionStorage.getItem("auth") === "true") {
+      window.location.href = "dashboard.html";
+    }
+
+    const btnLogin   = document.getElementById("btnLogin");
+    const errorEl    = document.getElementById("loginError");
+    const inputUser  = document.getElementById("usuario");
+    const inputPass  = document.getElementById("password");
+
+    // Login al presionar Enter
+    [inputUser, inputPass].forEach(el => {
+      el.addEventListener("keydown", e => { if (e.key === "Enter") btnLogin.click(); });
+    });
+
+    btnLogin.addEventListener("click", async () => {
+      const usuario  = inputUser.value.trim();
+      const password = inputPass.value.trim();
+
+      if (!usuario || !password) {
+        mostrarError("Por favor ingresa usuario y contraseña.");
+        return;
+      }
+
+      btnLogin.disabled     = true;
+      btnLogin.textContent  = "Verificando...";
+      errorEl.classList.remove("show");
+
+      try {
+        const url = `${SCRIPT_URL}?action=login&usuario=${encodeURIComponent(usuario)}&password=${encodeURIComponent(password)}&t=${Date.now()}`;
+        const res  = await fetch(url, { cache: "no-store" });
+        const json = await res.json();
+
+        if (json.ok) {
+          sessionStorage.setItem("auth", "true");
+          sessionStorage.setItem("usuario", usuario);
+          window.location.href = "dashboard.html";
+        } else {
+          mostrarError("Usuario o contraseña incorrectos.");
+        }
+      } catch (err) {
+        mostrarError("Error de conexión. Intenta de nuevo.");
+      } finally {
+        btnLogin.disabled    = false;
+        btnLogin.textContent = "Ingresar";
+      }
+    });
+
+    function mostrarError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.add("show");
+    }
+  </script>
+</body>
+</html>

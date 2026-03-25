@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
-  <link rel="icon" type="image/png" href="src/logo.png" />
+  <link rel="icon" type="image/png" href="logo.png" />
   <link rel="stylesheet" href="src/styles.css" />
 </head>
 <body>
@@ -19,8 +19,8 @@
       <a href="index.html" class="logo">Dra. <span>Michelle Garcia</span></a>
       <ul class="nav-links" id="navLinks">
         <li><a href="index.html">Inicio</a></li>
-        <li><a href="agendar.html">Agendar Cita</a></li>
         <li><a href="biografia.html">La Doctora</a></li>
+        <li><a href="login.html" class="nav-login">Iniciar sesión</a></li>
         <li><a href="agendar.html" class="nav-cta">Reservar &rarr;</a></li>
       </ul>
       <button class="hamburger" id="hamburger" aria-label="Menú">
@@ -124,26 +124,11 @@
                 />
               </div>
 
-              <!-- Hora -->
+              <!-- Hora — se llena dinámicamente al elegir fecha -->
               <div class="form-group">
                 <label for="hora">Hora preferida <span style="color:#e53e3e">*</span></label>
-                <select id="hora" name="hora" required>
-                  <option value="" disabled selected>Selecciona una hora...</option>
-                  <option value="09:00 AM">09:00 AM</option>
-                  <option value="09:30 AM">09:30 AM</option>
-                  <option value="10:00 AM">10:00 AM</option>
-                  <option value="10:30 AM">10:30 AM</option>
-                  <option value="11:00 AM">11:00 AM</option>
-                  <option value="11:30 AM">11:30 AM</option>
-                  <option value="12:00 PM">12:00 PM</option>
-                  <option value="02:00 PM">02:00 PM</option>
-                  <option value="02:30 PM">02:30 PM</option>
-                  <option value="03:00 PM">03:00 PM</option>
-                  <option value="03:30 PM">03:30 PM</option>
-                  <option value="04:00 PM">04:00 PM</option>
-                  <option value="04:30 PM">04:30 PM</option>
-                  <option value="05:00 PM">05:00 PM</option>
-                  <option value="05:30 PM">05:30 PM</option>
+                <select id="hora" name="hora" required disabled>
+                  <option value="" disabled selected>Primero selecciona una fecha...</option>
                 </select>
               </div>
 
@@ -252,27 +237,5 @@
   </a>
 
   <script src="src/main.js"></script>
-
-  <script>
-    // Bloquear fechas pasadas y fines de semana en el date picker
-    const inputFecha = document.getElementById("fecha");
-    if (inputFecha) {
-      const hoy = new Date();
-      const yyyy = hoy.getFullYear();
-      const mm = String(hoy.getMonth() + 1).padStart(2, "0");
-      const dd = String(hoy.getDate()).padStart(2, "0");
-      inputFecha.min = `${yyyy}-${mm}-${dd}`;
-
-      inputFecha.addEventListener("input", () => {
-        const seleccionada = new Date(inputFecha.value + "T00:00:00");
-        const diaSemana = seleccionada.getDay(); // 0=Dom, 6=Sab
-        if (diaSemana === 0) {
-          // Domingo: no disponible
-          alert("Lo sentimos, no atendemos los domingos. Por favor selecciona otro día.");
-          inputFecha.value = "";
-        }
-      });
-    }
-  </script>
 </body>
 </html>
